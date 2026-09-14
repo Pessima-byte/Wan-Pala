@@ -1,0 +1,30 @@
+{
+  "name": "wan-pala-mobile",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "expo": "~57.0.22",
+    "expo-status-bar": "~57.0.1",
+    "lucide-react-native": "^0.475.0",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-svg": "15.15.4",
+    "react-native-webview": "13.16.1",
+    "react-native-youtube-iframe": "^2.3.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~19.2.4",
+    "typescript": "~6.0.3"
+  },
+  "private": true
+}

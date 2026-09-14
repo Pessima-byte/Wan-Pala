@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "WAN PALA",
+    "slug": "wan-pala-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wanpala.lounge",
+      "infoPlist": {
+        "NSCameraUsageDescription": "WAN PALA requires camera access to enable video chat in your lounge.",
+        "NSMicrophoneUsageDescription": "WAN PALA requires microphone access to enable voice chat in your lounge."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0b0e14"
+      },
+      "package": "com.wanpala.lounge",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
