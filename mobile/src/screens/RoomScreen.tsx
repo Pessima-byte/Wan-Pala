@@ -155,10 +155,12 @@ export const RoomScreen: React.FC = () => {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.tilesScrollContent}
               >
-                {usersList.map(user => {
+                {usersList.map((user, idx) => {
+                  if (!user) return null;
+                  const userId = user.id || `user-tile-${idx}`;
                   const isMe = user.id === currentUser.id;
                   return (
-                    <View key={user.id} style={styles.userTileCard}>
+                    <View key={userId} style={styles.userTileCard}>
                       {/* Speaker / Mic icon at top-right */}
                       <View style={styles.tileSpeakerBadge}>
                         <Volume2 size={12} color="#10b981" />
@@ -177,7 +179,7 @@ export const RoomScreen: React.FC = () => {
                       {/* Bottom Name Badge */}
                       <View style={styles.tileNameBadge}>
                         <Text style={styles.tileNameText} numberOfLines={1}>
-                          {user.name} {isMe ? '(You)' : ''}
+                          {user.name || 'Guest'} {isMe ? '(You)' : ''}
                         </Text>
                       </View>
                     </View>
