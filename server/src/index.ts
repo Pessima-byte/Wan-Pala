@@ -595,6 +595,20 @@ io.on('connection', (socket: Socket) => {
     }
   });
 
+  socket.on('webrtc-request-renegotiate', (payload: { targetUserId: string }) => {
+    const session = socketUserMap.get(socket.id);
+    if (!session) return;
+    const room = roomManager.getRoom(session.roomId);
+    if (!room) return;
+
+    const targetUser = room.users[payload.targetUserId];
+    if (targetUser && targetUser.socketId) {
+      io.to(targetUser.socketId).emit('webrtc-request-renegotiate', {
+        requesterUserId: session.userId
+      });
+    }
+  });
+
   // Disconnection & Clean up
   const handleDisconnect = () => {
     const session = socketUserMap.get(socket.id);

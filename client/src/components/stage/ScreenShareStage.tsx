@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useRoom } from '../../context/RoomContext';
-import { Monitor, StopCircle, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react';
+import { Monitor, StopCircle, Maximize2, Minimize2, Volume2, VolumeX, RefreshCw } from 'lucide-react';
+import { socket } from '../../socket';
 
 export const ScreenShareStage: React.FC = () => {
   const { room, currentUser, screenStream, remoteStreams, remoteScreenStreams, toggleScreenShare, syncAllRemoteStreams } = useRoom();
@@ -57,6 +58,21 @@ export const ScreenShareStage: React.FC = () => {
     }
     return remoteScreenStreams?.[presenterId || ''] || remoteStreams[presenterId || ''] || null;
   }, [isSelfPresenting, screenStream, presenterId, remoteScreenStreams, remoteStreams, currentUser.id]);
+
+  // Request renegotiation from presenter if stream is not ready after mounting
+  useEffect(() => {
+    if (!isSelfPresenting && presenterId) {
+      syncAllRemoteStreams();
+      const retryTimer = setTimeout(() => {
+        if (!activeStream || !activeStream.getVideoTracks().length) {
+          console.log(`[ScreenShareStage] Requesting screen renegotiation from ${presenterId}`);
+          socket.emit('webrtc-request-renegotiate', { targetUserId: presenterId });
+          syncAllRemoteStreams();
+        }
+      }, 1200);
+      return () => clearTimeout(retryTimer);
+    }
+  }, [isSelfPresenting, presenterId, activeStream, syncAllRemoteStreams]);
 
   // Check if the stream has a video track
   const hasVideoTrack = Boolean(
@@ -401,10 +417,18 @@ export const ScreenShareStage: React.FC = () => {
               </p>
               <button
                 type="button"
-                onClick={() => syncAllRemoteStreams()}
-                className="mt-4 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl transition shadow-lg cursor-pointer active:scale-95"
+                onClick={() => {
+                  syncAllRemoteStreams();
+                  if (presenterId) {
+                    socket.emit('webrtc-request-renegotiate', { targetUserId: presenterId });
+                  }
+                  if (videoRef.current) {
+                    videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+                  }
+                }}
+                className="mt-4 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 active:scale-95 text-white text-xs font-semibold rounded-xl transition shadow-lg cursor-pointer flex items-center gap-2"
               >
-                Tap to Sync Stream
+                <RefreshCw className="w-3.5 h-3.5" /> Tap to Sync Stream
               </button>
             </div>
           )}

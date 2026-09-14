@@ -3,10 +3,25 @@ import { socket } from '../socket';
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ]
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+    { urls: ['stun:relay.metered.ca:80', 'stun:relay.metered.ca:443'] },
+    {
+      urls: 'turn:relay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:relay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:relay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  ],
+  iceCandidatePoolSize: 2
 };
 
 interface UseWebRTCProps {
@@ -129,13 +144,7 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
     const audioReceivers = transceivers
       .filter(t => t.receiver?.track?.kind === 'audio' && t.receiver.track.readyState !== 'ended')
       .filter(t => t.currentDirection !== 'sendonly')
-      .sort((a, b) => {
-        if (!a.receiver.track!.muted && b.receiver.track!.muted) return -1;
-        if (a.receiver.track!.muted && !b.receiver.track!.muted) return 1;
-        const midA = a.mid !== null ? Number(a.mid) : 0;
-        const midB = b.mid !== null ? Number(b.mid) : 0;
-        return midA - midB;
-      });
+      .sort((a, b) => transceivers.indexOf(a) - transceivers.indexOf(b));
 
     const audioTrack = audioReceivers[0]?.receiver?.track || null;
 
@@ -143,11 +152,7 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
     const videoReceivers = transceivers
       .filter(t => t.receiver?.track?.kind === 'video' && t.receiver.track.readyState !== 'ended')
       .filter(t => t.currentDirection !== 'sendonly')
-      .sort((a, b) => {
-        const midA = a.mid !== null ? Number(a.mid) : 0;
-        const midB = b.mid !== null ? Number(b.mid) : 0;
-        return midA - midB;
-      });
+      .sort((a, b) => transceivers.indexOf(a) - transceivers.indexOf(b));
 
     // In dual-transceiver architecture:
     // videoReceivers[0] is the camera video track (transceiver 1)
@@ -158,27 +163,13 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
     if (videoReceivers.length >= 2) {
       const t0 = videoReceivers[0]?.receiver?.track || null;
       const t1 = videoReceivers[1]?.receiver?.track || null;
-      // If transceiver 0 has screen contentHint ('detail' or 'motion'), it's screenTrack
-      if (t0 && ((t0 as any).contentHint === 'detail' || (t0 as any).contentHint === 'motion')) {
-        screenTrack = t0;
-        cameraTrack = t1;
-      } else if (t1 && ((t1 as any).contentHint === 'detail' || (t1 as any).contentHint === 'motion')) {
-        cameraTrack = t0;
-        screenTrack = t1;
-      } else {
-        // Standard transceiver architecture: transceiver 1 is camera (index 0), transceiver 2 is screen (index 1)
-        cameraTrack = t0;
-        screenTrack = t1;
-      }
+      cameraTrack = t0;
+      screenTrack = t1;
     } else if (videoReceivers.length === 1) {
       const singleTrack = videoReceivers[0]?.receiver?.track || null;
-      if (singleTrack && ((singleTrack as any).contentHint === 'detail' || (singleTrack as any).contentHint === 'motion')) {
-        screenTrack = singleTrack;
-      } else {
-        // In single track scenarios, make it available to both or screen if active app is localvideo/screenshare
-        cameraTrack = singleTrack;
-        screenTrack = singleTrack;
-      }
+      // In single track scenarios, make it available to both or screen
+      cameraTrack = singleTrack;
+      screenTrack = singleTrack;
     }
 
     // 1. Media stream: Voice audio + camera video for VideoTile avatar dock
@@ -229,14 +220,62 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
 
   // ─── SDP Bitrate Optimization Helper ───
   // Boosts SDP bandwidth limit for video (b=AS for kbps, b=TIAS for bps)
-  // 50 Mbps (50,000 kbps) for crystal-clear master-quality 4K/60FPS ultra top-notch fidelity
-  const boostSdpBitrate = (sdp: string, bitrateKbps = 50000): string => {
+  // RFC 4566 compliant: places b= line strictly AFTER c= in each media section
+  const boostSdpBitrate = (sdp: string, bitrateKbps = 4000): string => {
     try {
-      const modifier = `b=AS:${bitrateKbps}\r\nb=TIAS:${bitrateKbps * 1000}\r\n`;
-      let modifiedSdp = sdp.replace(/(m=video[^\r\n]*\r\n)/g, `$1${modifier}`);
-      // Also boost audio bitrate for high-fidelity sound (stereo 320 kbps Opus)
-      modifiedSdp = modifiedSdp.replace(/(m=audio[^\r\n]*\r\n)/g, `$1b=AS:320\r\nb=TIAS:320000\r\n`);
-      return modifiedSdp;
+      const lines = sdp.split('\r\n');
+      const result: string[] = [];
+      let inVideoSection = false;
+      let inAudioSection = false;
+      let insertedVideoBandwidth = false;
+      let insertedAudioBandwidth = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.startsWith('m=video')) {
+          inVideoSection = true;
+          inAudioSection = false;
+          insertedVideoBandwidth = false;
+          result.push(line);
+          continue;
+        } else if (line.startsWith('m=audio')) {
+          inAudioSection = true;
+          inVideoSection = false;
+          insertedAudioBandwidth = false;
+          result.push(line);
+          continue;
+        } else if (line.startsWith('m=')) {
+          inVideoSection = false;
+          inAudioSection = false;
+          result.push(line);
+          continue;
+        }
+
+        // RFC 4566 requires b= lines to follow c= in the media description
+        if (inVideoSection && line.startsWith('c=') && !insertedVideoBandwidth) {
+          result.push(line);
+          result.push(`b=AS:${bitrateKbps}`);
+          result.push(`b=TIAS:${bitrateKbps * 1000}`);
+          insertedVideoBandwidth = true;
+          continue;
+        }
+
+        if (inAudioSection && line.startsWith('c=') && !insertedAudioBandwidth) {
+          result.push(line);
+          result.push(`b=AS:128`);
+          result.push(`b=TIAS:128000`);
+          insertedAudioBandwidth = true;
+          continue;
+        }
+
+        if ((inVideoSection || inAudioSection) && (line.startsWith('b=AS:') || line.startsWith('b=TIAS:'))) {
+          continue;
+        }
+
+        result.push(line);
+      }
+
+      return result.join('\r\n');
     } catch {
       return sdp;
     }
@@ -280,13 +319,12 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
             screenT.direction = 'sendrecv';
             await screenT.sender.replaceTrack(screenTrack);
 
-            // Configure sender encoding parameters for ultra-high video fidelity (50 Mbps, 60 FPS, maintain-resolution)
+            // Configure sender encoding parameters for adaptive screen share (4 Mbps, 60 FPS)
             const params = screenT.sender.getParameters();
             if (!params.encodings || params.encodings.length === 0) {
               params.encodings = [{}];
             }
-            params.encodings[0].maxBitrate = 50_000_000; // 50 Mbps master quality
-            (params.encodings[0] as any).minBitrate = 10_000_000; // 10 Mbps minimum baseline
+            params.encodings[0].maxBitrate = 4_000_000;
             params.encodings[0].maxFramerate = 60;
             params.encodings[0].scaleResolutionDownBy = 1.0;
             (params as any).degradationPreference = 'maintain-resolution';
@@ -430,7 +468,20 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
     if (!pc) return;
 
     if (pc.signalingState !== 'stable' || makingOffer.current[targetUserId]) {
-      console.log(`[WebRTC] Skipping renegotiation for ${targetUserId}: signalingState=${pc.signalingState}, makingOffer=${makingOffer.current[targetUserId]}`);
+      console.log(`[WebRTC] Peer ${targetUserId} not stable (${pc.signalingState}), queueing renegotiation...`);
+      const retryRenegotiate = () => {
+        if (pc.signalingState === 'stable' && !makingOffer.current[targetUserId]) {
+          pc.removeEventListener('signalingstatechange', retryRenegotiate);
+          renegotiatePeer(targetUserId);
+        }
+      };
+      pc.addEventListener('signalingstatechange', retryRenegotiate);
+      setTimeout(() => {
+        pc.removeEventListener('signalingstatechange', retryRenegotiate);
+        if (pc.signalingState === 'stable' && !makingOffer.current[targetUserId]) {
+          renegotiatePeer(targetUserId);
+        }
+      }, 500);
       return;
     }
 
@@ -439,7 +490,7 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
       makingOffer.current[targetUserId] = true;
       const offer = await pc.createOffer();
       if (offer.sdp) {
-        offer.sdp = boostSdpBitrate(offer.sdp, 25000); // 25 Mbps for ultra-clear 4K / 1080p60 top-notch quality
+        offer.sdp = boostSdpBitrate(offer.sdp, 4000);
       }
       await pc.setLocalDescription(offer);
       socket.emit('webrtc-offer', {
@@ -702,8 +753,7 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
       screenT.sender.replaceTrack(screenTrack).catch(() => {});
       const params = screenT.sender.getParameters();
       if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-      params.encodings[0].maxBitrate = 50_000_000;
-      (params.encodings[0] as any).minBitrate = 10_000_000;
+      params.encodings[0].maxBitrate = 4_000_000;
       params.encodings[0].maxFramerate = 60;
       params.encodings[0].scaleResolutionDownBy = 1.0;
       (params as any).degradationPreference = 'maintain-resolution';
@@ -724,7 +774,7 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
         makingOffer.current[targetUserId] = true;
         const offer = await pc.createOffer();
         if (offer.sdp) {
-          offer.sdp = boostSdpBitrate(offer.sdp, 50000);
+          offer.sdp = boostSdpBitrate(offer.sdp, 4000);
         }
         await pc.setLocalDescription(offer);
         console.log(`[WebRTC] Sending offer to ${targetUserId}`);
@@ -860,18 +910,22 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
             await screenT.sender.replaceTrack(screenTrack).catch(() => {});
             const params = screenT.sender.getParameters();
             if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-            params.encodings[0].maxBitrate = 50_000_000;
-            (params.encodings[0] as any).minBitrate = 10_000_000;
+            params.encodings[0].maxBitrate = 4_000_000;
             params.encodings[0].maxFramerate = 60;
             params.encodings[0].scaleResolutionDownBy = 1.0;
             (params as any).degradationPreference = 'maintain-resolution';
             await screenT.sender.setParameters(params).catch(() => {});
           }
+        } else if (screenT) {
+          // If this peer is not sharing screen, ensure direction allows receiving remote screen
+          if (screenT.direction !== 'recvonly' && screenT.direction !== 'sendrecv') {
+            screenT.direction = 'recvonly';
+          }
         }
 
         const answer = await pc.createAnswer();
         if (answer.sdp) {
-          answer.sdp = boostSdpBitrate(answer.sdp, 50000);
+          answer.sdp = boostSdpBitrate(answer.sdp, 4000);
         }
         await pc.setLocalDescription(answer);
 
@@ -946,18 +1000,43 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
       });
     };
 
+    const handleRequestRenegotiate = async ({ requesterUserId }: { requesterUserId: string }) => {
+      console.log(`[WebRTC] Received renegotiation request from ${requesterUserId}`);
+      const screenTrack = screenStreamRef.current?.getVideoTracks()[0] || null;
+      const audioTrack = effectiveAudioTrackRef.current || localStreamRef.current?.getAudioTracks()[0] || null;
+      const cameraTrack = localStreamRef.current?.getVideoTracks()[0] || null;
+
+      const pc = peerConnections.current[requesterUserId] || createPeerConnection(requesterUserId);
+      if (pc) {
+        const transceivers = pc.getTransceivers();
+        if (transceivers[0]?.sender && audioTrack) {
+          await transceivers[0].sender.replaceTrack(audioTrack).catch(() => {});
+        }
+        if (transceivers[1]?.sender && cameraTrack) {
+          await transceivers[1].sender.replaceTrack(cameraTrack).catch(() => {});
+        }
+        if (transceivers[2]?.sender && screenTrack) {
+          transceivers[2].direction = 'sendrecv';
+          await transceivers[2].sender.replaceTrack(screenTrack).catch(() => {});
+        }
+        await renegotiatePeer(requesterUserId);
+      }
+    };
+
     socket.on('webrtc-offer', handleOffer);
     socket.on('webrtc-answer', handleAnswer);
     socket.on('webrtc-ice-candidate', handleCandidate);
+    socket.on('webrtc-request-renegotiate', handleRequestRenegotiate);
     socket.on('user-left', handleUserLeft);
 
     return () => {
       socket.off('webrtc-offer', handleOffer);
       socket.off('webrtc-answer', handleAnswer);
       socket.off('webrtc-ice-candidate', handleCandidate);
+      socket.off('webrtc-request-renegotiate', handleRequestRenegotiate);
       socket.off('user-left', handleUserLeft);
     };
-  }, [createPeerConnection, processPendingCandidates, syncRemoteStream]);
+  }, [createPeerConnection, processPendingCandidates, syncRemoteStream, renegotiatePeer]);
 
   // ═══════════════════════════════════════════════════════════════
   // Call peer (initiator) — just creates PeerConnection.
