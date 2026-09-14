@@ -1,8 +1,12 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, Dimensions } from 'react-native';
 import YoutubePlayer, { YoutubeIframeRef } from 'react-native-youtube-iframe';
 import { useRoom } from '../../context/RoomContext';
-import { Search, Play, Pause, Disc } from 'lucide-react-native';
+import { Search, Play, Pause } from 'lucide-react-native';
+
+const { width: screenWidth } = Dimensions.get('window');
+const playerWidth = screenWidth - 24;
+const playerHeight = Math.round((playerWidth * 9) / 16);
 
 function extractYouTubeId(url: string): string | null {
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
@@ -16,7 +20,7 @@ export const MobileYouTubeStage: React.FC = () => {
   const isUpdatingFromSocket = useRef(false);
 
   const mediaState = room?.mediaState;
-  const videoId = mediaState?.url ? extractYouTubeId(mediaState.url) || '5qap5aO4i9A' : '5qap5aO4i9A';
+  const videoId = mediaState?.url ? extractYouTubeId(mediaState.url) || 'jfKfPfyJRdk' : 'jfKfPfyJRdk';
   const isPlaying = mediaState?.playing ?? true;
 
   // Sync state changes from room
@@ -53,41 +57,57 @@ export const MobileYouTubeStage: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      {/* Video Box */}
-      <View style={styles.videoBox}>
+      {/* Video Box 16:9 */}
+      <View style={[styles.videoBox, { height: playerHeight }]}>
         <YoutubePlayer
           ref={playerRef}
-          height={220}
+          width={playerWidth}
+          height={playerHeight}
           play={isPlaying}
           videoId={videoId}
           onChangeState={onStateChange}
           webViewProps={{
             allowsInlineMediaPlayback: true,
             mediaPlaybackRequiresUserAction: false,
+            androidLayerType: 'hardware',
           }}
         />
       </View>
 
-      {/* Media Info Bar */}
+      {/* Media Info Bar matching screenshot */}
       <View style={styles.infoBar}>
-        <View style={styles.titleCol}>
+        {/* Left: Red live dot + Title */}
+        <View style={styles.titleContainer}>
+          <View style={styles.redDot} />
           <Text style={styles.videoTitle} numberOfLines={1}>
-            {mediaState?.title || 'YouTube Watch Party'}
+            {mediaState?.title || 'Lofi Hip Hop Radio'}
           </Text>
-          <View style={styles.statusRow}>
-            <View style={[styles.statusDot, { backgroundColor: isPlaying ? '#10b981' : '#f59e0b' }]} />
-            <Text style={styles.statusText}>{isPlaying ? 'Synced' : 'Paused'}</Text>
-          </View>
         </View>
 
+        {/* Center: Red/maroon pill button "Search / Change Video" */}
         <TouchableOpacity
           style={styles.searchBtn}
           onPress={() => setIsYouTubeSearchOpen(true)}
           activeOpacity={0.8}
         >
-          <Search size={14} color="#f87171" style={{ marginRight: 6 }} />
-          <Text style={styles.searchBtnText}>Change</Text>
+          <Search size={13} color="#f87171" style={{ marginRight: 5 }} />
+          <Text style={styles.searchBtnText}>Search / Change Video</Text>
         </TouchableOpacity>
+
+        {/* Right: Paused or Synced indicator */}
+        <View style={styles.statusContainer}>
+          {isPlaying ? (
+            <View style={styles.statusRow}>
+              <Play size={12} color="#10b981" fill="#10b981" style={{ marginRight: 3 }} />
+              <Text style={styles.syncedText}>Synced</Text>
+            </View>
+          ) : (
+            <View style={styles.statusRow}>
+              <Pause size={12} color="#f59e0b" style={{ marginRight: 3 }} />
+              <Text style={styles.pausedText}>Paused</Text>
+            </View>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -96,66 +116,86 @@ export const MobileYouTubeStage: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    backgroundColor: '#000000',
+    backgroundColor: '#0a0d14',
     borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 10,
   },
   videoBox: {
     width: '100%',
-    height: 220,
     backgroundColor: '#000000',
+    overflow: 'hidden',
     justifyContent: 'center',
+    alignItems: 'center',
   },
   infoBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: '#161d27',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#111622',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },
-  titleCol: {
-    flex: 1,
-    marginRight: 10,
-  },
-  videoTitle: {
-    color: '#f1f5f9',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  statusRow: {
+  titleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 3,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    flex: 1,
     marginRight: 6,
   },
-  statusText: {
-    color: '#94a3b8',
-    fontSize: 11,
-    fontWeight: '500',
+  redDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#ef4444',
+    marginRight: 6,
+  },
+  videoTitle: {
+    color: '#e2e8f0',
+    fontSize: 12,
+    fontWeight: '600',
+    flexShrink: 1,
   },
   searchBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    marginHorizontal: 4,
   },
   searchBtnText: {
-    color: '#f87171',
-    fontSize: 12,
+    color: '#fca5a5',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 2,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  syncedText: {
+    color: '#10b981',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  pausedText: {
+    color: '#f59e0b',
+    fontSize: 11,
     fontWeight: '700',
   },
 });

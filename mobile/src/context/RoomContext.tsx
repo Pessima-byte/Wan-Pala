@@ -16,11 +16,14 @@ interface RoomContextType {
   setIsAppLauncherOpen: (open: boolean) => void;
   isYouTubeSearchOpen: boolean;
   setIsYouTubeSearchOpen: (open: boolean) => void;
+  isThemeModalOpen: boolean;
+  setIsThemeModalOpen: (open: boolean) => void;
   joinRoom: (roomSlug: string, userName: string, avatar?: string) => Promise<boolean>;
   leaveRoom: () => void;
   sendMessage: (text: string) => void;
   sendMediaAction: (type: 'play' | 'pause' | 'seek' | 'set-media' | 'queue-add' | 'queue-remove', data?: any) => void;
   setActiveApp: (appType: AppType) => void;
+  updateRoomSettings: (settings: { backgroundTheme?: string; name?: string; isLocked?: boolean }) => void;
   toggleMute: () => void;
   toggleCamera: () => void;
 }
@@ -57,6 +60,7 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isAppLauncherOpen, setIsAppLauncherOpen] = useState(false);
   const [isYouTubeSearchOpen, setIsYouTubeSearchOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
 
   const socketRef = useRef<Socket>(getSocket(serverUrl));
 
@@ -116,6 +120,10 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setRoom(prev => (prev ? { ...prev, activeApp: data.activeApp, mediaState: data.mediaState } : null));
     };
 
+    const onRoomSettingsUpdated = (settings: { backgroundTheme?: string; name?: string; isLocked?: boolean }) => {
+      setRoom(prev => (prev ? { ...prev, ...settings } : null));
+    };
+
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('room-joined', onRoomJoined);
@@ -126,6 +134,7 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
     socket.on('chat-updated', onChatUpdated);
     socket.on('media-updated', onMediaUpdated);
     socket.on('active-app-changed', onActiveAppChanged);
+    socket.on('room-settings-updated', onRoomSettingsUpdated);
 
     return () => {
       socket.off('connect', onConnect);
@@ -138,6 +147,7 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
       socket.off('chat-updated', onChatUpdated);
       socket.off('media-updated', onMediaUpdated);
       socket.off('active-app-changed', onActiveAppChanged);
+      socket.off('room-settings-updated', onRoomSettingsUpdated);
     };
   }, [currentUser.id]);
 
@@ -188,6 +198,10 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
     socketRef.current.emit('set-active-app', { appType });
   }, []);
 
+  const updateRoomSettings = useCallback((settings: { backgroundTheme?: string; name?: string; isLocked?: boolean }) => {
+    socketRef.current.emit('update-room-settings', settings);
+  }, []);
+
   const toggleMute = useCallback(() => {
     const next = !currentUser.isMuted;
     setCurrentUser(prev => ({ ...prev, isMuted: next }));
@@ -215,11 +229,14 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsAppLauncherOpen,
         isYouTubeSearchOpen,
         setIsYouTubeSearchOpen,
+        isThemeModalOpen,
+        setIsThemeModalOpen,
         joinRoom,
         leaveRoom,
         sendMessage,
         sendMediaAction,
         setActiveApp,
+        updateRoomSettings,
         toggleMute,
         toggleCamera,
       }}
