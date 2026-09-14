@@ -52,7 +52,7 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<User>(DEFAULT_USER);
   const [connected, setConnected] = useState(false);
   const [isInRoom, setIsInRoom] = useState(false);
-  const [serverUrl, setServerUrlState] = useState('http://localhost:5001');
+  const [serverUrl, setServerUrlState] = useState('https://wan-pala.onrender.com');
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isAppLauncherOpen, setIsAppLauncherOpen] = useState(false);
