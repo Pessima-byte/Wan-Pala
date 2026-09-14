@@ -13,6 +13,7 @@ import {
   Headphones,
   Plus
 } from 'lucide-react';
+import { apiUrl } from '../../config';
 
 import confetti from 'canvas-confetti';
 
@@ -72,7 +73,7 @@ export const LobbyView: React.FC = () => {
     triggerCelebration();
     const finalRoomName = newRoomName.trim() || `${name}'s Lounge`;
     try {
-      const res = await fetch('/api/rooms', {
+      const res = await fetch(apiUrl('/api/rooms'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: finalRoomName })

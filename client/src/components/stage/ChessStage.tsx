@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRoom } from '../../context/RoomContext';
 import { Chess, Square } from 'chess.js';
 import confetti from 'canvas-confetti';
+import { apiUrl } from '../../config';
 import {
   Swords,
   Puzzle,
@@ -225,7 +226,7 @@ export const ChessStage: React.FC = () => {
       // Fetch via server proxy, fallback to direct Lichess
       let res: Response;
       try {
-        res = await fetch(`/api/puzzle/${mode}`);
+        res = await fetch(apiUrl(`/api/puzzle/${mode}`));
         if (!res.ok) throw new Error('Server proxy error');
       } catch {
         res = await fetch(`https://lichess.org/api/puzzle/${mode}`);

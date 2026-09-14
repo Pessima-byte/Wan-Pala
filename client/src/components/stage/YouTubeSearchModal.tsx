@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRoom } from '../../context/RoomContext';
 import { Search, X, Play, Clock, Sparkles, Tv, Loader2 } from 'lucide-react';
+import { apiUrl } from '../../config';
 
 interface YouTubeVideoItem {
   id: string;
@@ -74,7 +75,7 @@ export const YouTubeSearchModal: React.FC = () => {
     setHasSearched(true);
 
     try {
-      const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(apiUrl(`/api/youtube/search?q=${encodeURIComponent(trimmed)}`));
       if (!res.ok) throw new Error('Search failed');
       const data = await res.json();
       setResults(data);
