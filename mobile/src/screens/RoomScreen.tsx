@@ -13,6 +13,9 @@ import {
 } from 'react-native';
 import { useRoom } from '../context/RoomContext';
 import { MobileYouTubeStage } from '../components/stage/MobileYouTubeStage';
+import { MobileWhiteboardStage } from '../components/stage/MobileWhiteboardStage';
+import { MobileScreenShareStage } from '../components/stage/MobileScreenShareStage';
+import { MobileWebRTCBridge } from '../components/webrtc/MobileWebRTCBridge';
 import { YouTubeSearchModal } from '../components/modals/YouTubeSearchModal';
 import { ChatDrawer } from '../components/chat/ChatDrawer';
 import { AppLauncherModal } from '../components/room/AppLauncherModal';
@@ -43,6 +46,7 @@ export const RoomScreen: React.FC = () => {
     setIsChatOpen,
     setIsAppLauncherOpen,
     setIsThemeModalOpen,
+    speakingUsers,
   } = useRoom();
 
   const [isInviteOpen, setIsInviteOpen] = useState(false);
@@ -124,10 +128,14 @@ export const RoomScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* Main Stage Area (Center 16:9 Player or Empty Placeholder) */}
+          {/* Main Stage Area (Center 16:9 Player or Whiteboard or ScreenShare or Empty Placeholder) */}
           <View style={styles.centerStageArea}>
             {activeApp === 'youtube' ? (
               <MobileYouTubeStage />
+            ) : activeApp === 'whiteboard' ? (
+              <MobileWhiteboardStage />
+            ) : activeApp === 'screenshare' || activeApp === 'localvideo' ? (
+              <MobileScreenShareStage />
             ) : (
               <View style={styles.placeholderStage}>
                 <Text style={styles.placeholderTitle}>Stage Ready</Text>
@@ -159,11 +167,29 @@ export const RoomScreen: React.FC = () => {
                   if (!user) return null;
                   const userId = user.id || `user-tile-${idx}`;
                   const isMe = user.id === currentUser.id;
+                  const isUserMuted = isMe ? currentUser.isMuted : user.isMuted;
+                  const isSpeaking = speakingUsers?.[user.id] ?? false;
+
                   return (
-                    <View key={userId} style={styles.userTileCard}>
+                    <View
+                      key={userId}
+                      style={[
+                        styles.userTileCard,
+                        isSpeaking && styles.userTileCardSpeaking,
+                      ]}
+                    >
                       {/* Speaker / Mic icon at top-right */}
-                      <View style={styles.tileSpeakerBadge}>
-                        <Volume2 size={12} color="#10b981" />
+                      <View
+                        style={[
+                          styles.tileSpeakerBadge,
+                          isUserMuted && styles.tileSpeakerBadgeMuted,
+                        ]}
+                      >
+                        {isUserMuted ? (
+                          <MicOff size={11} color="#f87171" />
+                        ) : (
+                          <Volume2 size={12} color={isSpeaking ? '#34d399' : '#10b981'} />
+                        )}
                       </View>
 
                       {/* User Avatar Circle */}
@@ -253,6 +279,9 @@ export const RoomScreen: React.FC = () => {
       <RoomThemeModal />
       <InviteModal visible={isInviteOpen} onClose={() => setIsInviteOpen(false)} />
       <ChatDrawer />
+
+      {/* Headless WebRTC Voice/Audio/Video Bridge */}
+      <MobileWebRTCBridge />
     </View>
   );
 };
@@ -434,6 +463,13 @@ const styles = StyleSheet.create({
     marginRight: 10,
     overflow: 'hidden',
   },
+  userTileCardSpeaking: {
+    borderColor: '#34d399',
+    shadowColor: '#34d399',
+    shadowOpacity: 0.9,
+    shadowRadius: 14,
+    elevation: 8,
+  },
   tileSpeakerBadge: {
     position: 'absolute',
     top: 5,
@@ -447,6 +483,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 2,
+  },
+  tileSpeakerBadgeMuted: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderColor: 'rgba(239, 68, 68, 0.4)',
   },
   avatarCircle: {
     width: 44,

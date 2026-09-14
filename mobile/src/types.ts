@@ -53,6 +53,14 @@ export interface ChatMessage {
   isSystem?: boolean;
 }
 
+export interface WhiteboardStroke {
+  id: string;
+  color: string;
+  width: number;
+  points: { x: number; y: number }[];
+  userId: string;
+}
+
 export interface RoomData {
   id: string;
   slug: string;
@@ -61,7 +69,7 @@ export interface RoomData {
   backgroundTheme: string;
   activeApp: AppType;
   mediaState: MediaState;
-  whiteboardStrokes: any[];
+  whiteboardStrokes: WhiteboardStroke[];
   cardGameState: any;
   chessGameState?: any;
   users: Record<string, User>;

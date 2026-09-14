@@ -23,29 +23,50 @@ export const MobileYouTubeStage: React.FC = () => {
   const videoId = mediaState?.url ? extractYouTubeId(mediaState.url) || 'jfKfPfyJRdk' : 'jfKfPfyJRdk';
   const isPlaying = mediaState?.playing ?? true;
 
-  // Sync state changes from room
+  // Sync state changes from room (video change, play/pause, seek drift)
   useEffect(() => {
     if (!playerRef.current || !mediaState) return;
 
     isUpdatingFromSocket.current = true;
+
+    // Check drift if remote playing or paused
+    const elapsedSinceUpdate = mediaState.playing
+      ? (Date.now() - (mediaState.lastUpdated || Date.now())) / 1000
+      : 0;
+    const expectedTime = Math.max(0, (mediaState.currentTime || 0) + elapsedSinceUpdate);
+
+    if (typeof playerRef.current.getCurrentTime === 'function') {
+      playerRef.current.getCurrentTime().then(localTime => {
+        if (typeof localTime === 'number' && Math.abs(localTime - expectedTime) > 1.8) {
+          if (typeof playerRef.current?.seekTo === 'function') {
+            playerRef.current.seekTo(expectedTime, true);
+          }
+        }
+      }).catch(() => {});
+    }
+
     const timer = setTimeout(() => {
       isUpdatingFromSocket.current = false;
-    }, 500);
+    }, 800);
 
     return () => clearTimeout(timer);
-  }, [mediaState?.playing, mediaState?.currentTime]);
+  }, [mediaState?.playing, mediaState?.currentTime, mediaState?.url, mediaState?.lastUpdated]);
 
   const onStateChange = (state: string) => {
     if (isUpdatingFromSocket.current) return;
 
     if (state === 'playing') {
-      playerRef.current?.getCurrentTime().then(time => {
-        sendMediaAction('play', { currentTime: time });
-      });
+      if (!mediaState?.playing) {
+        playerRef.current?.getCurrentTime().then(time => {
+          sendMediaAction('play', { currentTime: time });
+        }).catch(() => {});
+      }
     } else if (state === 'paused') {
-      playerRef.current?.getCurrentTime().then(time => {
-        sendMediaAction('pause', { currentTime: time });
-      });
+      if (mediaState?.playing) {
+        playerRef.current?.getCurrentTime().then(time => {
+          sendMediaAction('pause', { currentTime: time });
+        }).catch(() => {});
+      }
     } else if (state === 'ended') {
       if (mediaState?.queue && mediaState.queue.length > 1) {
         const next = mediaState.queue[1];

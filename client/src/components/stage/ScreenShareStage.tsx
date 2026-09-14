@@ -105,6 +105,8 @@ export const ScreenShareStage: React.FC = () => {
     }
   }, [isSelfPresenting, presenterId, remoteScreenStreams, remoteStreams]);
 
+  const lastAssignedTrackIdRef = useRef<string | null>(null);
+
   // Callback ref guarantees srcObject and play() are invoked the instant <video> mounts
   const setVideoRef = useCallback((node: HTMLVideoElement | null) => {
     videoRef.current = node;
@@ -112,8 +114,11 @@ export const ScreenShareStage: React.FC = () => {
       node.defaultMuted = true;
       node.muted = true;
       node.playsInline = true;
-      if (node.srcObject !== activeStream) {
+      const videoTrack = activeStream.getVideoTracks()[0];
+      const trackId = videoTrack ? videoTrack.id : null;
+      if (!node.srcObject || lastAssignedTrackIdRef.current !== trackId) {
         node.srcObject = activeStream;
+        lastAssignedTrackIdRef.current = trackId;
       }
       const playPromise = node.play();
       if (playPromise !== undefined) {
@@ -132,16 +137,22 @@ export const ScreenShareStage: React.FC = () => {
       videoEl.defaultMuted = true;
       videoEl.muted = true;
       videoEl.playsInline = true;
-      if (videoEl.srcObject !== activeStream) {
+
+      const videoTrack = activeStream.getVideoTracks()[0];
+      const trackId = videoTrack ? videoTrack.id : null;
+
+      if (!videoEl.srcObject || lastAssignedTrackIdRef.current !== trackId) {
         videoEl.srcObject = activeStream;
+        lastAssignedTrackIdRef.current = trackId;
+        videoEl.play().then(() => setIsPlaying(true)).catch(() => {});
       }
-      videoEl.play().then(() => setIsPlaying(true)).catch(err => {
-        console.warn('[ScreenShare] Video play error:', err);
-      });
 
       const onTrackChange = () => {
-        if (videoEl.srcObject !== activeStream) {
+        const currentTrack = activeStream.getVideoTracks()[0];
+        const newTrackId = currentTrack ? currentTrack.id : null;
+        if (!videoEl.srcObject || lastAssignedTrackIdRef.current !== newTrackId) {
           videoEl.srcObject = activeStream;
+          lastAssignedTrackIdRef.current = newTrackId;
         }
         videoEl.play().then(() => setIsPlaying(true)).catch(() => {});
       };
@@ -372,8 +383,19 @@ export const ScreenShareStage: React.FC = () => {
               {!isPlaying && !isSelfPresenting && (
                 <button
                   type="button"
-                  onClick={() => videoRef.current?.play().then(() => setIsPlaying(true)).catch(() => {})}
-                  className="absolute bottom-6 px-4 py-2 bg-brand-600/90 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-lg backdrop-blur-md flex items-center gap-2 cursor-pointer transition transform hover:scale-105"
+                  onClick={() => {
+                    if (videoRef.current) {
+                      videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+                    }
+                    if (audioRef.current) {
+                      audioRef.current.play().catch(() => {});
+                    }
+                    syncAllRemoteStreams();
+                    if (presenterId) {
+                      socket.emit('webrtc-request-renegotiate', { targetUserId: presenterId });
+                    }
+                  }}
+                  className="absolute bottom-6 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-xl backdrop-blur-md flex items-center gap-2 cursor-pointer transition transform hover:scale-105 active:scale-95"
                 >
                   ▶️ Tap to Resume Stream
                 </button>

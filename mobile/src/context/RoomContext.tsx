@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Socket } from 'socket.io-client';
 import { getSocket, updateSocketUrl } from '../services/socket';
-import { RoomData, User, ChatMessage, AppType, MediaState } from '../types';
+import { RoomData, User, ChatMessage, AppType, MediaState, WhiteboardStroke } from '../types';
 
 interface RoomContextType {
   room: RoomData | null;
@@ -26,6 +26,11 @@ interface RoomContextType {
   updateRoomSettings: (settings: { backgroundTheme?: string; name?: string; isLocked?: boolean }) => void;
   toggleMute: () => void;
   toggleCamera: () => void;
+  sendWhiteboardStroke: (stroke: WhiteboardStroke) => void;
+  undoWhiteboardStroke: () => void;
+  clearWhiteboard: () => void;
+  speakingUsers: Record<string, boolean>;
+  setSpeakingUsers: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 }
 
 const DEFAULT_USER: User = {
@@ -61,6 +66,7 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAppLauncherOpen, setIsAppLauncherOpen] = useState(false);
   const [isYouTubeSearchOpen, setIsYouTubeSearchOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [speakingUsers, setSpeakingUsers] = useState<Record<string, boolean>>({});
 
   const socketRef = useRef<Socket>(getSocket(serverUrl));
 
@@ -124,6 +130,24 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setRoom(prev => (prev ? { ...prev, ...settings } : null));
     };
 
+    const onWhiteboardStroke = (stroke: WhiteboardStroke) => {
+      setRoom(prev => (prev ? { ...prev, whiteboardStrokes: [...(prev.whiteboardStrokes || []), stroke] } : null));
+    };
+
+    const onWhiteboardCleared = () => {
+      setRoom(prev => (prev ? { ...prev, whiteboardStrokes: [] } : null));
+    };
+
+    const onWhiteboardStrokeRemoved = (data: { strokeId: string }) => {
+      setRoom(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          whiteboardStrokes: (prev.whiteboardStrokes || []).filter(s => s.id !== data.strokeId),
+        };
+      });
+    };
+
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('room-joined', onRoomJoined);
@@ -135,6 +159,9 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
     socket.on('media-updated', onMediaUpdated);
     socket.on('active-app-changed', onActiveAppChanged);
     socket.on('room-settings-updated', onRoomSettingsUpdated);
+    socket.on('whiteboard-stroke', onWhiteboardStroke);
+    socket.on('whiteboard-stroke-removed', onWhiteboardStrokeRemoved);
+    socket.on('whiteboard-cleared', onWhiteboardCleared);
 
     return () => {
       socket.off('connect', onConnect);
@@ -148,6 +175,9 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
       socket.off('media-updated', onMediaUpdated);
       socket.off('active-app-changed', onActiveAppChanged);
       socket.off('room-settings-updated', onRoomSettingsUpdated);
+      socket.off('whiteboard-stroke', onWhiteboardStroke);
+      socket.off('whiteboard-stroke-removed', onWhiteboardStrokeRemoved);
+      socket.off('whiteboard-cleared', onWhiteboardCleared);
     };
   }, [currentUser.id]);
 
@@ -214,6 +244,32 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
     socketRef.current.emit('update-user-state', { isCameraOff: next });
   }, [currentUser.isCameraOff]);
 
+  const sendWhiteboardStroke = useCallback((stroke: WhiteboardStroke) => {
+    socketRef.current.emit('whiteboard-stroke', stroke);
+    setRoom(prev => (prev ? { ...prev, whiteboardStrokes: [...(prev.whiteboardStrokes || []), stroke] } : null));
+  }, []);
+
+  const undoWhiteboardStroke = useCallback(() => {
+    socketRef.current.emit('whiteboard-undo');
+    setRoom(prev => {
+      if (!prev || !prev.whiteboardStrokes?.length) return prev;
+      const strokes = [...prev.whiteboardStrokes];
+      for (let i = strokes.length - 1; i >= 0; i--) {
+        if (strokes[i].userId === currentUser.id) {
+          strokes.splice(i, 1);
+          return { ...prev, whiteboardStrokes: strokes };
+        }
+      }
+      strokes.pop();
+      return { ...prev, whiteboardStrokes: strokes };
+    });
+  }, [currentUser.id]);
+
+  const clearWhiteboard = useCallback(() => {
+    socketRef.current.emit('whiteboard-clear');
+    setRoom(prev => (prev ? { ...prev, whiteboardStrokes: [] } : null));
+  }, []);
+
   return (
     <RoomContext.Provider
       value={{
@@ -239,6 +295,11 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateRoomSettings,
         toggleMute,
         toggleCamera,
+        sendWhiteboardStroke,
+        undoWhiteboardStroke,
+        clearWhiteboard,
+        speakingUsers,
+        setSpeakingUsers,
       }}
     >
       {children}

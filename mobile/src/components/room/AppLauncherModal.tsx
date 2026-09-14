@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useRoom } from '../../context/RoomContext';
 import { AppType } from '../../types';
-import { Tv, Palette, Swords, X, Sparkles, Film } from 'lucide-react-native';
+import { Tv, Palette, Swords, X, Sparkles, Film, Monitor } from 'lucide-react-native';
 
 interface AppItem {
   type: AppType;
@@ -29,6 +29,14 @@ const APPS: AppItem[] = [
     desc: 'Watch synchronized YouTube videos with friends in your lounge.',
     icon: Tv,
     color: '#ef4444',
+  },
+  {
+    type: 'screenshare',
+    title: 'Screen & Tab Share',
+    category: 'Watch Together',
+    desc: 'Watch live screen, stream, and browser shares in real-time.',
+    icon: Monitor,
+    color: '#38bdf8',
   },
   {
     type: 'whiteboard',
