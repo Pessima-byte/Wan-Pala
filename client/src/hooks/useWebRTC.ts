@@ -413,55 +413,6 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
     };
   }, [resumeAudioContext, isMuted, startLocalMedia]);
 
-  const toggleCamera = useCallback(async (enable: boolean) => {
-    if (!localStreamRef.current) {
-      await startLocalMedia(true, enable);
-      return;
-    }
-
-    const currentVideoTrack = localStreamRef.current.getVideoTracks()[0];
-    if (enable) {
-      if (currentVideoTrack) {
-        currentVideoTrack.enabled = true;
-      } else {
-        try {
-          const videoStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 640 }, height: { ideal: 480 } }
-          });
-          const newTrack = videoStream.getVideoTracks()[0];
-          localStreamRef.current.addTrack(newTrack);
-        } catch (err) {
-          console.error('[WebRTC] Error acquiring webcam:', err);
-          return;
-        }
-      }
-
-      setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
-
-      // Use replaceTrack — no renegotiation needed
-      const vt = localStreamRef.current.getVideoTracks()[0] || null;
-      await replaceAllSenderTracks(undefined, vt, undefined);
-    } else {
-      if (currentVideoTrack) {
-        currentVideoTrack.enabled = false;
-        currentVideoTrack.stop();
-        localStreamRef.current.removeTrack(currentVideoTrack);
-        setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
-
-        await replaceAllSenderTracks(undefined, null, undefined);
-      }
-    }
-  }, [startLocalMedia, replaceAllSenderTracks]);
-
-  // Toggle local mute
-  useEffect(() => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach(t => {
-        t.enabled = !isMuted;
-      });
-    }
-  }, [isMuted]);
-
   // Explicit SDP renegotiation helper
   const renegotiatePeer = useCallback(async (targetUserId: string) => {
     const pc = peerConnections.current[targetUserId];
@@ -504,6 +455,64 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
       makingOffer.current[targetUserId] = false;
     }
   }, []);
+
+  const toggleCamera = useCallback(async (enable: boolean) => {
+    if (!localStreamRef.current) {
+      await startLocalMedia(true, enable);
+      for (const targetUserId of Object.keys(peerConnections.current)) {
+        renegotiatePeer(targetUserId);
+      }
+      return;
+    }
+
+    const currentVideoTrack = localStreamRef.current.getVideoTracks()[0];
+    if (enable) {
+      if (currentVideoTrack) {
+        currentVideoTrack.enabled = true;
+      } else {
+        try {
+          const videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 480 } }
+          });
+          const newTrack = videoStream.getVideoTracks()[0];
+          localStreamRef.current.addTrack(newTrack);
+        } catch (err) {
+          console.error('[WebRTC] Error acquiring webcam:', err);
+          return;
+        }
+      }
+
+      setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+
+      // Use replaceTrack + explicit renegotiation so all remote peers receive new video m-line
+      const vt = localStreamRef.current.getVideoTracks()[0] || null;
+      await replaceAllSenderTracks(undefined, vt, undefined);
+      for (const targetUserId of Object.keys(peerConnections.current)) {
+        renegotiatePeer(targetUserId);
+      }
+    } else {
+      if (currentVideoTrack) {
+        currentVideoTrack.enabled = false;
+        currentVideoTrack.stop();
+        localStreamRef.current.removeTrack(currentVideoTrack);
+        setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+
+        await replaceAllSenderTracks(undefined, null, undefined);
+        for (const targetUserId of Object.keys(peerConnections.current)) {
+          renegotiatePeer(targetUserId);
+        }
+      }
+    }
+  }, [startLocalMedia, replaceAllSenderTracks, renegotiatePeer]);
+
+  // Toggle local mute
+  useEffect(() => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach(t => {
+        t.enabled = !isMuted;
+      });
+    }
+  }, [isMuted]);
 
   // ═══════════════════════════════════════════════════════════════
   // Screen Sharing

@@ -79,6 +79,15 @@ export const MobileWebRTCBridge: React.FC = () => {
         console.log(`[MobileWebRTCBridge] User joined: ${data.user.name} (${data.user.id}), calling peer...`);
         postToWebView({ type: 'CALL_PEER', targetUserId: data.user.id });
       }
+      if (data.users) {
+        postToWebView({ type: 'USERS_UPDATE', users: data.users });
+      }
+    };
+
+    const onUserUpdated = (data: { user: any; users: Record<string, any> }) => {
+      if (data.users) {
+        postToWebView({ type: 'USERS_UPDATE', users: data.users });
+      }
     };
 
     const onUserLeft = (data: { userId: string }) => {
@@ -91,6 +100,7 @@ export const MobileWebRTCBridge: React.FC = () => {
     socket.on('webrtc-ice-candidate', onIceCandidate);
     socket.on('webrtc-request-renegotiate', onRenegotiate);
     socket.on('user-joined', onUserJoined);
+    socket.on('user-updated', onUserUpdated);
     socket.on('user-left', onUserLeft);
 
     return () => {
@@ -99,6 +109,7 @@ export const MobileWebRTCBridge: React.FC = () => {
       socket.off('webrtc-ice-candidate', onIceCandidate);
       socket.off('webrtc-request-renegotiate', onRenegotiate);
       socket.off('user-joined', onUserJoined);
+      socket.off('user-updated', onUserUpdated);
       socket.off('user-left', onUserLeft);
     };
   }, [socket, currentUser.id, postToWebView]);
@@ -511,8 +522,20 @@ export const MobileWebRTCBridge: React.FC = () => {
             } catch (e) {}
 
           } else if (event.track.kind === 'video') {
-            log('Remote video track received from ' + targetUserId);
-            remoteVideoStreams[targetUserId] = new MediaStream([event.track]);
+            log('Remote video track received from ' + targetUserId + ' (id: ' + event.track.id + ')');
+            const transceivers = pc.getTransceivers();
+            const isCameraTrack = (event.transceiver === transceivers[1]) || !remoteVideoStreams[targetUserId];
+            if (isCameraTrack) {
+              remoteVideoStreams[targetUserId] = new MediaStream([event.track]);
+            }
+            event.track.onunmute = function() {
+              log('Remote video track unmuted from ' + targetUserId);
+              renderTiles();
+            };
+            event.track.onended = function() {
+              log('Remote video track ended from ' + targetUserId);
+              renderTiles();
+            };
             renderTiles();
           }
         };
@@ -684,25 +707,27 @@ export const MobileWebRTCBridge: React.FC = () => {
           const videoEl = document.getElementById('video-' + uid);
           const avatarEl = document.getElementById('avatar-' + uid);
 
-          if (!uCamOff) {
-            // Camera is ON -> attach stream and show video
-            const streamToPlay = isMe ? localStream : remoteVideoStreams[uid];
+          const streamToPlay = isMe ? localStream : remoteVideoStreams[uid];
+          const hasLiveVideo = Boolean(
+            streamToPlay &&
+            streamToPlay.getVideoTracks().length > 0 &&
+            streamToPlay.getVideoTracks()[0].readyState === 'live'
+          );
+          const showVideo = (!uCamOff || (!isMe && hasLiveVideo)) && hasLiveVideo;
+
+          if (showVideo) {
             if (videoEl) {
-              if (streamToPlay && streamToPlay.getVideoTracks().length > 0) {
-                if (videoEl.srcObject !== streamToPlay) {
-                  videoEl.srcObject = streamToPlay;
-                }
-                videoEl.style.display = 'block';
-                videoEl.play().catch(function() {});
-                if (avatarEl) avatarEl.style.display = 'none';
-              } else {
-                videoEl.style.display = 'none';
-                if (avatarEl) avatarEl.style.display = 'flex';
+              if (videoEl.srcObject !== streamToPlay) {
+                videoEl.srcObject = streamToPlay;
               }
+              videoEl.style.display = 'block';
+              videoEl.play().catch(function() {});
             }
+            if (avatarEl) avatarEl.style.display = 'none';
           } else {
-            // Camera is OFF -> show avatar circle
-            if (videoEl) videoEl.style.display = 'none';
+            if (videoEl) {
+              videoEl.style.display = 'none';
+            }
             if (avatarEl) avatarEl.style.display = 'flex';
           }
         });
