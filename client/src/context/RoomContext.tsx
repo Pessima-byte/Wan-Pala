@@ -150,7 +150,10 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const onUserJoined = (data: { user: User; users: Record<string, User> }) => {
       setRoom(prev => prev ? { ...prev, users: data.users } : null);
-      // Joining user initiates call via onRoomJoined; avoiding duplicate glare
+      if (data.user && data.user.id && data.user.id !== currentUser.id) {
+        console.log(`[RoomContext] User joined room (${data.user.name} - ${data.user.id}), establishing WebRTC connection...`);
+        callPeer(data.user.id);
+      }
     };
 
     const onUserUpdated = (data: { user: User; users: Record<string, User> }) => {

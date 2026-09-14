@@ -4,6 +4,7 @@ import { getSocket, updateSocketUrl } from '../services/socket';
 import { RoomData, User, ChatMessage, AppType, MediaState, WhiteboardStroke } from '../types';
 
 interface RoomContextType {
+  socket: Socket;
   room: RoomData | null;
   currentUser: User;
   connected: boolean;
@@ -318,6 +319,7 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <RoomContext.Provider
       value={{
+        socket: socketRef.current,
         room,
         currentUser,
         connected,
