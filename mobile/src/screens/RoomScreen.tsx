@@ -158,60 +158,7 @@ export const RoomScreen: React.FC = () => {
           <View style={styles.bottomSection}>
             {/* Participant Video/Avatar Tiles at bottom-left */}
             <View style={styles.tilesContainer}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.tilesScrollContent}
-              >
-                {usersList.map((user, idx) => {
-                  if (!user) return null;
-                  const userId = user.id || `user-tile-${idx}`;
-                  const isMe = user.id === currentUser.id;
-                  const isUserMuted = isMe ? currentUser.isMuted : user.isMuted;
-                  const isSpeaking = speakingUsers?.[user.id] ?? false;
-
-                  return (
-                    <View
-                      key={userId}
-                      style={[
-                        styles.userTileCard,
-                        isSpeaking && styles.userTileCardSpeaking,
-                      ]}
-                    >
-                      {/* Speaker / Mic icon at top-right */}
-                      <View
-                        style={[
-                          styles.tileSpeakerBadge,
-                          isUserMuted && styles.tileSpeakerBadgeMuted,
-                        ]}
-                      >
-                        {isUserMuted ? (
-                          <MicOff size={11} color="#f87171" />
-                        ) : (
-                          <Volume2 size={12} color={isSpeaking ? '#34d399' : '#10b981'} />
-                        )}
-                      </View>
-
-                      {/* User Avatar Circle */}
-                      <View
-                        style={[
-                          styles.avatarCircle,
-                          { backgroundColor: `${user.color || '#3b82f6'}35` },
-                        ]}
-                      >
-                        <Text style={styles.avatarEmoji}>{user.avatar || '🐱'}</Text>
-                      </View>
-
-                      {/* Bottom Name Badge */}
-                      <View style={styles.tileNameBadge}>
-                        <Text style={styles.tileNameText} numberOfLines={1}>
-                          {user.name || 'Guest'} {isMe ? '(You)' : ''}
-                        </Text>
-                      </View>
-                    </View>
-                  );
-                })}
-              </ScrollView>
+              <MobileWebRTCBridge />
             </View>
 
             {/* Floating Control Dock */}
@@ -279,9 +226,6 @@ export const RoomScreen: React.FC = () => {
       <RoomThemeModal />
       <InviteModal visible={isInviteOpen} onClose={() => setIsInviteOpen(false)} />
       <ChatDrawer />
-
-      {/* Headless WebRTC Voice/Audio/Video Bridge */}
-      <MobileWebRTCBridge />
     </View>
   );
 };
