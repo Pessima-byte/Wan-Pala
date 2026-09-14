@@ -66,7 +66,7 @@ export const MobileWebRTCBridge: React.FC = () => {
 
     const onUserJoined = (data: { user: any; users: Record<string, any> }) => {
       if (data.user && data.user.id && data.user.id !== currentUser.id) {
-        console.log(`[MobileWebRTCBridge] User joined: ${data.user.name} (${data.user.id}), notifying engine...`);
+        console.log(`[MobileWebRTCBridge] User joined: ${data.user.name} (${data.user.id}), calling peer...`);
         postToWebView({ type: 'CALL_PEER', targetUserId: data.user.id });
       }
     };
@@ -130,6 +130,7 @@ export const MobileWebRTCBridge: React.FC = () => {
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>WAN PALA Audio Engine</title>
 </head>
@@ -159,18 +160,19 @@ export const MobileWebRTCBridge: React.FC = () => {
       const audioElements = {};
       const makingOffer = {};
 
-      function postToRN(type, eventOrData, payload) {
+      function postToRN(type, message, payload, event) {
         if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: type,
-            event: eventOrData,
+            message: message,
+            event: event,
             payload: payload
           }));
         }
       }
 
       function log(msg) {
-        postToRN('LOG', null, msg);
+        postToRN('LOG', msg, null, null);
       }
 
       function getAudioContext() {
@@ -208,10 +210,29 @@ export const MobileWebRTCBridge: React.FC = () => {
             const speakingNow = avg > 12;
             if (speakingNow !== isSpeaking) {
               isSpeaking = speakingNow;
-              postToRN('SPEAKING_UPDATE', null, { userId: userId, isSpeaking: speakingNow });
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'SPEAKING_UPDATE',
+                  userId: userId,
+                  isSpeaking: speakingNow
+                }));
+              }
             }
           }, 150);
         } catch (e) {}
+      }
+
+      function getMediaStream(constraints) {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          return navigator.mediaDevices.getUserMedia(constraints);
+        }
+        return new Promise(function(resolve, reject) {
+          const legacyGUM = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+          if (!legacyGUM) {
+            return reject(new Error('getUserMedia not supported in this WebView'));
+          }
+          legacyGUM.call(navigator, constraints, resolve, reject);
+        });
       }
 
       async function initLocalAudio() {
@@ -223,8 +244,8 @@ export const MobileWebRTCBridge: React.FC = () => {
         }
 
         try {
-          log('Acquiring microphone stream via getUserMedia...');
-          const stream = await navigator.mediaDevices.getUserMedia({
+          log('Acquiring microphone stream via getUserMedia (secureContext=' + window.isSecureContext + ')...');
+          const stream = await getMediaStream({
             audio: {
               echoCancellation: true,
               noiseSuppression: true,
@@ -297,10 +318,10 @@ export const MobileWebRTCBridge: React.FC = () => {
 
         pc.onicecandidate = function(event) {
           if (event.candidate) {
-            postToRN('SIGNAL_OUT', 'webrtc-ice-candidate', {
+            postToRN('SIGNAL_OUT', null, {
               targetUserId: targetUserId,
               candidate: event.candidate
-            });
+            }, 'webrtc-ice-candidate');
           }
         };
 
@@ -357,11 +378,11 @@ export const MobileWebRTCBridge: React.FC = () => {
           makingOffer[targetUserId] = true;
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
-          postToRN('SIGNAL_OUT', 'webrtc-offer', {
+          postToRN('SIGNAL_OUT', null, {
             targetUserId: targetUserId,
             callerUserId: currentUserId,
             offer: pc.localDescription
-          });
+          }, 'webrtc-offer');
           log('Sent webrtc-offer to ' + targetUserId);
         } catch (err) {
           log('callPeer createOffer error: ' + err.message);
@@ -393,10 +414,10 @@ export const MobileWebRTCBridge: React.FC = () => {
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
 
-          postToRN('SIGNAL_OUT', 'webrtc-answer', {
+          postToRN('SIGNAL_OUT', null, {
             targetUserId: callerUserId,
             answer: pc.localDescription
-          });
+          }, 'webrtc-answer');
           log('Sent webrtc-answer to ' + callerUserId);
         } catch (err) {
           log('handleOffer error: ' + err.message);
@@ -496,8 +517,8 @@ export const MobileWebRTCBridge: React.FC = () => {
       });
 
       // Announce ready to React Native container
-      postToRN('READY', null, null);
-      log('Engine initialized, ready signal sent');
+      postToRN('READY', 'Engine ready', null, null);
+      log('Engine initialized, isSecureContext=' + window.isSecureContext);
     })();
   </script>
 </body>
@@ -509,7 +530,7 @@ export const MobileWebRTCBridge: React.FC = () => {
       <WebView
         ref={webViewRef}
         originWhitelist={['*']}
-        source={{ html: htmlContent }}
+        source={{ html: htmlContent, baseUrl: 'https://localhost' }}
         onMessage={onMessage}
         mediaPlaybackRequiresUserAction={false}
         allowsInlineMediaPlayback={true}
