@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { useRoom } from '../context/RoomContext';
 import {
@@ -49,12 +50,12 @@ export const HomeScreen: React.FC = () => {
     const slug = 'lounge-' + Math.floor(100 + Math.random() * 900);
     const finalRoomName = roomName.trim() || `${name}'s Lounge`;
     setIsSubmitting(true);
-    const success = await joinRoom(slug, name, avatar);
+    const success = await joinRoom(slug, name, avatar, finalRoomName);
     setIsSubmitting(false);
     if (!success) {
       Alert.alert(
         'Connection Issue',
-        `Unable to reach server at ${serverUrl}. Tap the settings icon to change server URL.`
+        `Unable to reach server at ${serverUrl}. If the server is on a free tier, it may be waking up—please try again in a few seconds, or check the server URL in settings.`
       );
     }
   };
@@ -71,7 +72,7 @@ export const HomeScreen: React.FC = () => {
     if (!success) {
       Alert.alert(
         'Connection Issue',
-        `Unable to join room at ${serverUrl}. Make sure the code is correct.`
+        `Unable to join room at ${serverUrl}. Make sure the code is correct, or wait a moment if the cloud server is waking up.`
       );
     }
   };
@@ -257,13 +258,22 @@ export const HomeScreen: React.FC = () => {
                 onChangeText={setRoomName}
               />
               <TouchableOpacity
-                style={styles.launchBtn}
+                style={[styles.launchBtn, isSubmitting && { opacity: 0.8 }]}
                 onPress={handleCreateLounge}
                 disabled={isSubmitting}
                 activeOpacity={0.85}
               >
-                <Sparkles size={14} color="#090d0b" style={{ marginRight: 6 }} />
-                <Text style={styles.launchBtnText}>Launch Lounge Now</Text>
+                {isSubmitting ? (
+                  <>
+                    <ActivityIndicator size="small" color="#090d0b" style={{ marginRight: 8 }} />
+                    <Text style={styles.launchBtnText}>Connecting to Lounge...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} color="#090d0b" style={{ marginRight: 6 }} />
+                    <Text style={styles.launchBtnText}>Launch Lounge Now</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           ) : (
@@ -277,13 +287,22 @@ export const HomeScreen: React.FC = () => {
                 autoCapitalize="none"
               />
               <TouchableOpacity
-                style={styles.launchBtn}
+                style={[styles.launchBtn, isSubmitting && { opacity: 0.8 }]}
                 onPress={handleJoinByCode}
                 disabled={isSubmitting}
                 activeOpacity={0.85}
               >
-                <ArrowRight size={14} color="#090d0b" style={{ marginRight: 6 }} />
-                <Text style={styles.launchBtnText}>Enter Lounge</Text>
+                {isSubmitting ? (
+                  <>
+                    <ActivityIndicator size="small" color="#090d0b" style={{ marginRight: 8 }} />
+                    <Text style={styles.launchBtnText}>Entering Lounge...</Text>
+                  </>
+                ) : (
+                  <>
+                    <ArrowRight size={14} color="#090d0b" style={{ marginRight: 6 }} />
+                    <Text style={styles.launchBtnText}>Enter Lounge</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           )}

@@ -18,7 +18,7 @@ interface RoomContextType {
   setIsYouTubeSearchOpen: (open: boolean) => void;
   isThemeModalOpen: boolean;
   setIsThemeModalOpen: (open: boolean) => void;
-  joinRoom: (roomSlug: string, userName: string, avatar?: string) => Promise<boolean>;
+  joinRoom: (roomSlug: string, userName: string, avatar?: string, roomName?: string, passcode?: string) => Promise<boolean>;
   leaveRoom: () => void;
   sendMessage: (text: string) => void;
   sendMediaAction: (type: 'play' | 'pause' | 'seek' | 'set-media' | 'queue-add' | 'queue-remove', data?: any) => void;
@@ -182,31 +182,76 @@ export const RoomProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [currentUser.id]);
 
   const joinRoom = useCallback(
-    (roomSlug: string, userName: string, avatar?: string): Promise<boolean> => {
+    (roomSlug: string, userName: string, avatar?: string, roomName?: string, passcode?: string): Promise<boolean> => {
       return new Promise(resolve => {
         const socket = socketRef.current;
+        const targetRoom = (roomSlug || '').trim().toLowerCase();
         const userPayload = {
-          name: userName || 'Mobile Guest',
-          avatar: avatar || '📱',
+          id: currentUser.id || ('mobile-user-' + Math.random().toString(36).substring(2, 8)),
+          name: userName || currentUser.name || 'Mobile Guest',
+          avatar: avatar || currentUser.avatar || '📱',
+          color: currentUser.color || '#6366f1',
           isMuted: currentUser.isMuted,
           isCameraOff: currentUser.isCameraOff,
         };
 
-        socket.emit('join-room', {
-          roomSlug: roomSlug.trim().toLowerCase(),
-          user: userPayload,
-        });
+        let isDone = false;
+        let timeoutId: any;
+
+        const cleanup = () => {
+          if (isDone) return;
+          isDone = true;
+          clearTimeout(timeoutId);
+          socket.off('room-joined', handleSuccess);
+          socket.off('error-message', handleError);
+          socket.off('connect_error', handleConnectError);
+        };
 
         const handleSuccess = () => {
-          socket.off('room-joined', handleSuccess);
+          cleanup();
           resolve(true);
         };
 
+        const handleError = (data: any) => {
+          console.warn('[RoomContext] Error from server during join:', data);
+          cleanup();
+          resolve(false);
+        };
+
+        const handleConnectError = (err: any) => {
+          console.warn('[RoomContext] Socket connect error during join:', err);
+        };
+
         socket.once('room-joined', handleSuccess);
-        setTimeout(() => resolve(false), 8000);
+        socket.once('error-message', handleError);
+        socket.on('connect_error', handleConnectError);
+
+        // Allow up to 25 seconds for Render spin-up cold start
+        timeoutId = setTimeout(() => {
+          console.warn('[RoomContext] Join room timed out after 25s for:', targetRoom);
+          cleanup();
+          resolve(false);
+        }, 25000);
+
+        const emitJoin = () => {
+          socket.emit('join-room', {
+            roomId: targetRoom,
+            roomSlug: targetRoom,
+            user: userPayload,
+            roomName: roomName?.trim() || undefined,
+            passcode: passcode?.trim() || undefined,
+          });
+        };
+
+        if (socket.connected) {
+          emitJoin();
+        } else {
+          socket.connect();
+          socket.once('connect', emitJoin);
+        }
       });
     },
-    [currentUser.isMuted, currentUser.isCameraOff]
+    [currentUser]
   );
 
   const leaveRoom = useCallback(() => {

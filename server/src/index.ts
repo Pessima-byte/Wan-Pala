@@ -4,6 +4,7 @@ import { Server, Socket } from 'socket.io';
 import cors from 'cors';
 import { RoomManager, generateRoomSlug } from './roomManager.js';
 import { User, AppType, WhiteboardStroke } from './types.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
 const server = http.createServer(app);
@@ -150,23 +151,29 @@ io.on('connection', (socket: Socket) => {
   console.log(`[Socket Connected] ID: ${socket.id}`);
 
   // Join Room
-  socket.on('join-room', (payload: { roomId: string; user: Omit<User, 'socketId' | 'isHost'>; passcode?: string; roomName?: string }) => {
-    const { roomId, user: userData, passcode, roomName } = payload;
-    const room = roomManager.getOrCreateRoom(roomId, roomName?.trim() || undefined);
+  socket.on('join-room', (payload: { roomId?: string; roomSlug?: string; user: Omit<User, 'socketId' | 'isHost'>; passcode?: string; roomName?: string }) => {
+    const rawTarget = payload.roomId || payload.roomSlug;
+    const roomId = rawTarget ? String(rawTarget).trim() : '';
+    const { user: userData, passcode, roomName } = payload;
+    const room = roomManager.getOrCreateRoom(roomId || undefined, roomName?.trim() || undefined);
 
     if (room.isLocked && room.passcode && room.passcode !== passcode) {
       socket.emit('error-message', { message: 'Incorrect room passcode.' });
       return;
     }
 
+    const userId = userData?.id || `user-${uuidv4().substring(0, 8)}`;
     const user: User = {
       ...userData,
+      id: userId,
+      name: userData?.name || 'Guest',
+      avatar: userData?.avatar || '📱',
       socketId: socket.id,
       isHost: Object.keys(room.users).length === 0,
-      isMuted: userData.isMuted ?? false,
-      isCameraOff: userData.isCameraOff ?? true,
+      isMuted: userData?.isMuted ?? false,
+      isCameraOff: userData?.isCameraOff ?? true,
       isScreenSharing: false,
-      color: userData.color || '#3b82f6'
+      color: userData?.color || '#3b82f6'
     };
 
     socket.join(room.id);

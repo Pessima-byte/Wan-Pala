@@ -31,14 +31,17 @@ function shuffleDeck(deck: string[]): string[] {
 export class RoomManager {
   private rooms: Map<string, Room> = new Map();
 
-  public getOrCreateRoom(slugOrId: string, customName?: string): Room {
-    let room = this.rooms.get(slugOrId);
-    if (!room) {
-      // Look for slug match
-      for (const r of this.rooms.values()) {
-        if (r.slug.toLowerCase() === slugOrId.toLowerCase() || r.id === slugOrId) {
-          room = r;
-          break;
+  public getOrCreateRoom(slugOrId?: string, customName?: string): Room {
+    let room: Room | undefined;
+    if (slugOrId) {
+      room = this.rooms.get(slugOrId);
+      if (!room) {
+        // Look for slug match
+        for (const r of this.rooms.values()) {
+          if (r.slug.toLowerCase() === slugOrId.toLowerCase() || r.id === slugOrId) {
+            room = r;
+            break;
+          }
         }
       }
     }
