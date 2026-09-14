@@ -668,6 +668,9 @@ export function useWebRTC({ currentUserId, isMuted, isCameraOff, onScreenShareEn
           if (AudioCtx) {
             const mixCtx = new AudioCtx();
             screenMixContextRef.current = mixCtx;
+            if (mixCtx.state === 'suspended') {
+              mixCtx.resume().catch(() => {});
+            }
             const micSource = mixCtx.createMediaStreamSource(new MediaStream([micAudioTrack]));
             const customSource = mixCtx.createMediaStreamSource(new MediaStream([customAudioTrack]));
             const destination = mixCtx.createMediaStreamDestination();

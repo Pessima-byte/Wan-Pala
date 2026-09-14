@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useRoom } from '../../context/RoomContext';
 import { socket } from '../../socket';
-import { Upload, Film, Play, Pause, Maximize2, Minimize2, Volume2, VolumeX, Radio, Sparkles } from 'lucide-react';
+import { Upload, Film, Play, Pause, Maximize2, Minimize2, Volume2, VolumeX, Radio, Sparkles, RefreshCw } from 'lucide-react';
 
 export const LocalVideoStage: React.FC = () => {
   const {
@@ -21,6 +21,9 @@ export const LocalVideoStage: React.FC = () => {
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animFrameIdRef = useRef<number | null>(null);
+  const lastAssignedTrackId = useRef<string | null>(null);
 
   const [localFileUrl, setLocalFileUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
@@ -105,6 +108,21 @@ export const LocalVideoStage: React.FC = () => {
     viewerAudioStream.getAudioTracks().length > 0
   );
 
+  // Request renegotiation from presenter if stream is not ready after mounting
+  useEffect(() => {
+    if (!isSelfPresenting && presenterId) {
+      syncAllRemoteStreams();
+      const retryTimer = setTimeout(() => {
+        if (!viewerStream || !viewerStream.getVideoTracks().length) {
+          console.log(`[LocalVideoStage] Requesting screen/video renegotiation from ${presenterId}`);
+          socket.emit('webrtc-request-renegotiate', { targetUserId: presenterId });
+          syncAllRemoteStreams();
+        }
+      }, 1200);
+      return () => clearTimeout(retryTimer);
+    }
+  }, [isSelfPresenting, presenterId, viewerStream, syncAllRemoteStreams]);
+
   // When host selects a file, clear any lingering srcObject, set URL, and broadcast
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -137,21 +155,74 @@ export const LocalVideoStage: React.FC = () => {
     }
   }, [localFileUrl]);
 
-  // Capture stream from video element once video is ready and broadcast via WebRTC
+  // Capture stream from video element (with canvas fallback to prevent hardware acceleration black frames)
   const captureAndBroadcast = useCallback(async () => {
     const video = videoRef.current;
     if (!video || !localFileUrl || isBroadcasting) return;
 
     try {
       let capturedStream: MediaStream | null = null;
+      let rawAudioTrack: MediaStreamTrack | null = null;
+
+      // Extract raw audio track if available from video captureStream
+      try {
+        if (typeof (video as any).captureStream === 'function') {
+          const directStream = (video as any).captureStream();
+          if (directStream && directStream.getAudioTracks().length > 0) {
+            rawAudioTrack = directStream.getAudioTracks()[0];
+          }
+        } else if (typeof (video as any).mozCaptureStream === 'function') {
+          const directStream = (video as any).mozCaptureStream();
+          if (directStream && directStream.getAudioTracks().length > 0) {
+            rawAudioTrack = directStream.getAudioTracks()[0];
+          }
+        }
+      } catch (audioErr) {
+        console.warn('[LocalVideoStage] Direct audio capture warning:', audioErr);
+      }
+
+      // First attempt native captureStream
       if (typeof (video as any).captureStream === 'function') {
-        capturedStream = (video as any).captureStream(60);
+        try {
+          capturedStream = (video as any).captureStream(30);
+        } catch (_) {}
       } else if (typeof (video as any).mozCaptureStream === 'function') {
-        capturedStream = (video as any).mozCaptureStream(60);
+        try {
+          capturedStream = (video as any).mozCaptureStream(30);
+        } catch (_) {}
+      }
+
+      // If captureStream fails or outputs black frame on hardware decoders, use offscreen canvas capture
+      if (!capturedStream || capturedStream.getVideoTracks().length === 0) {
+        console.log('[LocalVideoStage] Using Canvas captureStream fallback for video decoding...');
+        const canvas = canvasRef.current || document.createElement('canvas');
+        canvasRef.current = canvas;
+        canvas.width = video.videoWidth || 1280;
+        canvas.height = video.videoHeight || 720;
+        const ctx = canvas.getContext('2d', { alpha: false });
+
+        const drawLoop = () => {
+          if (!video.paused && !video.ended && ctx) {
+            if (canvas.width !== video.videoWidth && video.videoWidth > 0) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+            }
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          }
+          animFrameIdRef.current = requestAnimationFrame(drawLoop);
+        };
+        drawLoop();
+
+        const canvasStream = canvas.captureStream(30);
+        const tracks: MediaStreamTrack[] = [...canvasStream.getVideoTracks()];
+        if (rawAudioTrack) tracks.push(rawAudioTrack);
+        capturedStream = new MediaStream(tracks);
+      } else if (rawAudioTrack && capturedStream.getAudioTracks().length === 0) {
+        capturedStream.addTrack(rawAudioTrack);
       }
 
       if (capturedStream && capturedStream.getVideoTracks().length > 0) {
-        console.log('[LocalVideoStage] Successfully captured MediaStream from video element:', capturedStream.id);
+        console.log('[LocalVideoStage] Successfully prepared MediaStream for broadcast:', capturedStream.id);
         const success = await startCustomMediaStream(capturedStream);
         if (success) {
           setIsBroadcasting(true);
@@ -184,9 +255,13 @@ export const LocalVideoStage: React.FC = () => {
     }
   }, [localFileUrl, isBroadcasting, captureAndBroadcast]);
 
-  // Clean up broadcast on unmount if host
+  // Clean up broadcast and canvas animation on unmount if host
   useEffect(() => {
     return () => {
+      if (animFrameIdRef.current) {
+        cancelAnimationFrame(animFrameIdRef.current);
+        animFrameIdRef.current = null;
+      }
       if (isBroadcasting) {
         stopCustomMediaStream();
         socket.emit('update-user-state', { isScreenSharing: false });
@@ -201,8 +276,14 @@ export const LocalVideoStage: React.FC = () => {
       node.defaultMuted = true;
       node.muted = true;
       node.playsInline = true;
-      if (node.srcObject !== viewerStream) {
+      const videoTrack = viewerStream.getVideoTracks()[0];
+      const trackId = videoTrack ? videoTrack.id : null;
+      
+      // CRITICAL FIX: Only assign srcObject if it is missing or track changed.
+      // Do NOT reassign on every 2-second stream poll, which causes WebKit/Safari to abort video playback!
+      if (!node.srcObject || lastAssignedTrackId.current !== trackId) {
         node.srcObject = viewerStream;
+        lastAssignedTrackId.current = trackId;
       }
       node.play().then(() => setIsRemotePlaying(true)).catch(err => {
         console.warn('[LocalVideoStage] Viewer video play waiting for interaction:', err);
@@ -211,21 +292,29 @@ export const LocalVideoStage: React.FC = () => {
     }
   }, [viewerStream]);
 
-  // Re-bind remote viewer video when viewerStream updates
+  // Re-bind remote viewer video when viewerStream updates (with strict track ID deduplication)
   useEffect(() => {
     const videoEl = remoteVideoRef.current;
     if (videoEl && viewerStream) {
       videoEl.defaultMuted = true;
       videoEl.muted = true;
       videoEl.playsInline = true;
-      if (videoEl.srcObject !== viewerStream) {
+
+      const videoTrack = viewerStream.getVideoTracks()[0];
+      const trackId = videoTrack ? videoTrack.id : null;
+
+      if (!videoEl.srcObject || lastAssignedTrackId.current !== trackId) {
         videoEl.srcObject = viewerStream;
+        lastAssignedTrackId.current = trackId;
+        videoEl.play().then(() => setIsRemotePlaying(true)).catch(() => {});
       }
-      videoEl.play().then(() => setIsRemotePlaying(true)).catch(() => {});
 
       const onTrackChange = () => {
-        if (videoEl.srcObject !== viewerStream) {
+        const currentTrack = viewerStream.getVideoTracks()[0];
+        const newTrackId = currentTrack ? currentTrack.id : null;
+        if (!videoEl.srcObject || lastAssignedTrackId.current !== newTrackId) {
           videoEl.srcObject = viewerStream;
+          lastAssignedTrackId.current = newTrackId;
         }
         videoEl.play().then(() => setIsRemotePlaying(true)).catch(() => {});
       };
@@ -531,8 +620,19 @@ export const LocalVideoStage: React.FC = () => {
             {!isRemotePlaying && (
               <button
                 type="button"
-                onClick={() => remoteVideoRef.current?.play().then(() => setIsRemotePlaying(true)).catch(() => {})}
-                className="absolute bottom-6 px-4 py-2 bg-brand-600/90 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-lg backdrop-blur-md flex items-center gap-2 cursor-pointer transition transform hover:scale-105"
+                onClick={() => {
+                  if (remoteVideoRef.current) {
+                    remoteVideoRef.current.play().then(() => setIsRemotePlaying(true)).catch(() => {});
+                  }
+                  if (remoteAudioRef.current) {
+                    remoteAudioRef.current.play().catch(() => {});
+                  }
+                  syncAllRemoteStreams();
+                  if (presenterId) {
+                    socket.emit('webrtc-request-renegotiate', { targetUserId: presenterId });
+                  }
+                }}
+                className="absolute bottom-6 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-xl backdrop-blur-md flex items-center gap-2 cursor-pointer transition transform hover:scale-105 active:scale-95"
               >
                 ▶️ Tap to Resume Video
               </button>
